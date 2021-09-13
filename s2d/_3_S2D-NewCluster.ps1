@@ -1,0 +1,1 @@
+﻿New-Cluster –Name Cluster2 –Node Cluster2016-1, Cluster2016-2, Cluster2016-3, Cluster2016-4 –NoStorage
