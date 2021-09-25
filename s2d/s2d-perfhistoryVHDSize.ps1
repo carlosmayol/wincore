@@ -1,59 +1,72 @@
 ﻿#
-$cluster = get-cluster -Domain $env:USERDOMAIN | Select-Object Name | Out-GridView -Title "Select your Cluster" -OutputMode Single 
+#Requires -module FailoverClusters
+#Requires -module Hyper-V
 
-$srvs= (Get-ClusterNode -Cluster $cluster.name).name 
+#Collecting Clusters in the domain
+$cluster = get-cluster -Domain $env:USERDOMAIN | Select-Object Name | Out-GridView -Title "Select your Cluster" -OutputMode Single
 
-$paths = foreach ($srv in $srvs) {(get-vm -CimSession $srv).HardDrives.Path}
-
-$paths = $paths | Select-Object  | Out-GridView -Title "Select your VHDX" -OutputMode Single 
-
-$session = New-PSSession -ComputerName $cluster.Name -Authentication CredSsp -Credential (Get-Credential -Message "Enter CREDSSP Auth")
-
-Invoke-Command -Session $session -ArgumentList @($paths) -ScriptBlock {
+#Using britanica to look in the VMs
+$vms =  (Get-CimInstance -CimSession $cluster.name -Namespace root\SDDC\Management -className SDDC_VirtualMachine).Name | Out-GridView -Title "Select your VMs" -PassThru
+#$vhds = $vhds -join "`n"
 
 
-$h = $null
+#Create a new PSSession
+$session = New-PSSession -ComputerName $cluster.Name
+
+Invoke-Command -Session $session -ArgumentList @($vms)  -ScriptBlock {
+
+
+Function Format-Bytes {
+    Param (
+        $RawValue
+    )
+    $i = 0 ; $Labels = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+    Do { $RawValue /= 1024 ; $i++ } While ( $RawValue -Gt 1024 )
+    # Return
+    [String][Math]::Round($RawValue) + " " + $Labels[$i]
+}
+
 $h = @()
-$result = $null
 $result = @()
 
+ foreach ($vm in $args) {
 
-#local execution required
-$srvs= (Get-ClusterNode).name 
+    $vhdssddc =  Get-CimInstance -Namespace root\SDDC\Management -className SDDC_VirtualMachine | Where-Object {$_.name -eq "$vm"} | select Vhds -ExpandProperty vhds
+    $vhds = $vhdssddc.FilePath
 
-$paths = foreach ($srv in $srvs) {(get-vm -CimSession $srv).HardDrives.Path} 
+    foreach ($vhd in $vhds) {
 
+        $data = get-vhd $vhd | Get-ClusterPerf -VHDSeriesName VHD.Size.Current -TimeFrame LastMonth
+        
+        if ($data -ne $null ) { # Sometimes VHDX are new in britanica but does not cointain perf data yet
+            $FirstSize = Format-Bytes ($data[0].Value)
+            $LastSize = Format-Bytes ($data[-1].Value)
+            $DiffSize = Format-Bytes (($data[-1].Value) - ($data[0].Value))
+         
+            $h = New-Object System.Object
+            $h | Add-Member -Type NoteProperty -name "VM" -Value $vm
+            $h | Add-Member -Type NoteProperty -name "VHDX" -Value $data[0].ObjectDescription
+            #$h | Add-Member -type NoteProperty -name "FirstSize" -value $data[0].Value
+            $h | Add-Member -type NoteProperty -name "FirstSize" -value $FirstSize
+            $h | Add-Member -type NoteProperty -name "FirstTime" -value $data[0].Time
+            #$h | Add-Member -type NoteProperty -name "LastSize" -value $data[-1].Value
+            $h | Add-Member -type NoteProperty -name "LastSize" -value $LastSize
+            $h | Add-Member -type NoteProperty -name "LastTime" -value $data[-1].Time
+            $h | Add-Member -type NoteProperty -name "Difference" -value $DiffSize
 
-foreach ($path in $paths) { 
-    
-    if ($path -ne $null)   {
-    
-    $data = get-vhd $path | Get-ClusterPerf -VHDSeriesName VHD.Size.Current -TimeFrame LastMonth
+            #Printing to screen
+            $h | ft Vm,  VHDX, FirstTime, FirstSize, Lasttime, LastSize, Difference
+        
+            #Adding to result variable to export as CSV in remote system
+            $result += $h
+            }
+       }
 
-    [string]$VHDX=  $data[0].ObjectDescription
-    [string]$FirstSize =$data[0].Value
-    [string]$LastSize = $data[-1].Value
-    [string]$time1 = $data[0].Time
-    [string]$time2 = $data[-1].Time
-   
-    $h = New-Object System.Object
-    $h | Add-Member -Type NoteProperty -name "VHDX" -Value $VHDX
-    $h | Add-Member -type NoteProperty -name "FirstSize" -value $FirstSize
-    $h | Add-Member -type NoteProperty -name "FirstTime" -value $time1
-    $h | Add-Member -type NoteProperty -name "LastSize" -value $LastSize
-    $h | Add-Member -type NoteProperty -name "LastTime" -value $time2
-
-    $result += $h
-
-    }
+    }   
 
 }
 
-$h | ft VHDX, FirstTime, @{N="FirstSize";E={"{0:F2}" -f ($h.FirstSize/1GB)}}, Lasttime, @{N="LastSize";E={"{0:F2}" -f ($h.LastSize/1GB)}}
-
-}
-
-#Collection the results of the previous commands to retreive the information to the local system
+#Collection of results to the local system
 $filesresult = Invoke-Command -session $session -ScriptBlock {$result}
 $filesresult | Where-Object {$_} | Export-Csv -Path .\vhdx.csv -NoTypeInformation
 Remove-PSSession -Session $session
