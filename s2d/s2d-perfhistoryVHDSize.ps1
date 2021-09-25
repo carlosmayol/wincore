@@ -2,6 +2,16 @@
 #Requires -module FailoverClusters
 #Requires -module Hyper-V
 
+
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('LastDay','LastWeek', 'LastMonth', 'LastYear')]
+        [string]$Timeframe,
+        [switch]$ExportCSV
+    )
+
+
+
 #Collecting Clusters in the domain
 $cluster = get-cluster -Domain $env:USERDOMAIN | Select-Object Name | Out-GridView -Title "Select your Cluster" -OutputMode Single
 
@@ -37,7 +47,7 @@ $result = @()
 
     foreach ($vhd in $vhds) {
 
-        $data = get-vhd $vhd | Get-ClusterPerf -VHDSeriesName VHD.Size.Current -TimeFrame LastMonth
+        $data = get-vhd $vhd | Get-ClusterPerf -VHDSeriesName VHD.Size.Current -TimeFrame $using:timeframe
         
         if ($data -ne $null ) { # Sometimes VHDX are new in britanica but does not cointain perf data yet
             $FirstSize = Format-Bytes ($data[0].Value)
@@ -68,8 +78,11 @@ $result = @()
 }
 
 #Collection of results to the local system
+if ($ExportCSV) {
 $filesresult = Invoke-Command -session $session -ScriptBlock {$result}
-$filesresult | Where-Object {$_} | Export-Csv -Path .\vhdx.csv -NoTypeInformation
+Write-Host "Exporting result to $pwd\vhdx.csv" -ForegroundColor Green
+$filesresult | Where-Object {$_} | Export-Csv -Path .\vhdx.csv -NoTypeInformation}
+
 Remove-PSSession -Session $session
 
 
