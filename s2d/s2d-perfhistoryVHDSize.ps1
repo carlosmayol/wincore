@@ -30,8 +30,9 @@ $h = @()
 $result = @()
 
  foreach ($vm in $args) {
-
-    $vhdssddc =  Get-CimInstance -Namespace root\SDDC\Management -className SDDC_VirtualMachine | Where-Object {$_.name -eq "$vm"} | select Vhds -ExpandProperty vhds
+    
+    #Looking for VHDX paths for selected VMs. dynamic filter (vhdtype = 3) is optional here. Fixed size can increase in size too -> manually/admin
+    $vhdssddc =  Get-CimInstance -Namespace root\SDDC\Management -className SDDC_VirtualMachine | Where-Object {($_.name -eq "$vm")} | select Vhds -ExpandProperty vhds
     $vhds = $vhdssddc.FilePath
 
     foreach ($vhd in $vhds) {
