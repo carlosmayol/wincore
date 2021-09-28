@@ -42,7 +42,7 @@ $result = @()
  foreach ($vm in $args) {
     
     #Looking for VHDX paths for selected VMs. dynamic filter (vhdtype = 3) is optional here. Fixed size can increase in size too -> manually/admin
-    $vhdssddc =  Get-CimInstance -Namespace root\SDDC\Management -className SDDC_VirtualMachine | Where-Object {($_.name -eq "$vm")} | select Vhds -ExpandProperty vhds
+    $vhdssddc =  Get-CimInstance -Namespace root\SDDC\Management -className SDDC_VirtualMachine | Where-Object {($_.name -eq "$vm")} | Select-Object Vhds -ExpandProperty vhds
     $vhds = $vhdssddc.FilePath
 
     foreach ($vhd in $vhds) {
@@ -66,7 +66,7 @@ $result = @()
             $h | Add-Member -type NoteProperty -name "Difference" -value $DiffSize
 
             #Printing to screen
-            $h | ft Vm,  VHDX, FirstTime, FirstSize, Lasttime, LastSize, Difference
+            $h | Format-Table Vm,  VHDX, FirstTime, FirstSize, Lasttime, LastSize, Difference
         
             #Adding to result variable to export as CSV in remote system
             $result += $h
